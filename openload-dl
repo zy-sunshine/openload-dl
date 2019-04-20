@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Usage:
-    openload-dl [options] URL
+    openload-dl [options] [URL]
 
 Options:
     -e, --extract-dlurl     Extract only file download url
@@ -11,11 +11,14 @@ Options:
                             bytes (default 1MB)                     
     -h, --help              Print this help and exit
     -v, --version           Print version and exit
+    --filelist <filelist>   Download file list
 """
 
 import os,sys
+import traceback
 import requests
 import time
+from threading import Thread
 from selenium import webdriver
 from tqdm import tqdm
 from docopt import docopt
@@ -50,28 +53,30 @@ def get_dlurl(url,browser):
 
 
 def download_file(dlurl,filename=None,csize=1000*1000):
-    r=requests.get(dlurl,stream=True)
-    file_size=int(r.headers['Content-Length'])
-    if filename is None:
-        filename=r.url.split("/")[-1]
-    if os.path.exists(filename):
-        first_byte = os.path.getsize(filename)
-    else:
-        first_byte = 0
-    if first_byte >= file_size:
-        return file_size
-    r=requests.get(dlurl,headers={"Range": "bytes=%s-%s" % (first_byte, file_size)}, stream=True)
-    with tqdm(total=file_size, initial=first_byte, unit='B',unit_scale=True, desc=filename[0:6]+"..."+filename[-7:]) as pbar:
-        with open(filename,'ab') as fp:
-            for chunk in r.iter_content(chunk_size=csize):
-                fp.write(chunk)
-                pbar.update(csize)
-    return file_size 
+    #r=requests.get(dlurl,stream=True)
+    #file_size=int(r.headers['Content-Length'])
+    #if filename is None:
+    #    filename=r.url.split("/")[-1]
+    #if os.path.exists(filename):
+    #    first_byte = os.path.getsize(filename)
+    #else:
+    #    first_byte = 0
+    #if first_byte >= file_size:
+    #    return file_size
+    #r=requests.get(dlurl,headers={"Range": "bytes=%s-%s" % (first_byte, file_size)}, stream=True)
+    #with tqdm(total=file_size, initial=first_byte, unit='B',unit_scale=True, desc=filename[0:6]+"..."+filename[-7:]) as pbar:
+    #    with open(filename,'ab') as fp:
+    #        for chunk in r.iter_content(chunk_size=csize):
+    #            fp.write(chunk)
+    #            pbar.update(csize)
+    #return file_size 
 
+    cmd = 'axel -an5 %s' % dlurl
+    os.system(cmd)
 
 #Main 
 if __name__=="__main__":
-    args=docopt(__doc__,version="openload-dl "+__version__)
+    args=docopt(__doc__, version="openload-dl "+__version__)
     if args['--chunk-size'] is None:
         csize=1000*1000
     else:
@@ -90,13 +95,44 @@ if __name__=="__main__":
             fox_opt=webdriver.FirefoxOptions()
             fox_opt.add_argument('--headless')
             browser=webdriver.Firefox(firefox_options=fox_opt)
-    if args['--extract-dlurl']==True:
-        print(get_dlurl(args['URL'],browser))
+    if args['--filelist']:
+        filelist = args['--filelist']
+        filelistlog = '%s.err' % filelist
+        errfp = open(filelistlog, 'wt')
+        ourls = []
+        threads = []
+        with open(filelist, 'rt') as fp:
+            for line in fp.readlines():
+                line = line.strip()
+                if not line:
+                    continue
+                if line.startswith('#'):
+                    continue
+                ourls.append(line)
+
+        for url in ourls:
+            try:
+                dlurl = get_dlurl(url, browser)
+                print(url, dlurl)
+                t = Thread(target=download_file, args=(dlurl, None, csize))
+                threads.append(t)
+                t.start()
+            except:
+                print('failed to get durl by url %s' % url)
+                traceback.print_exc()
+                errfp.write('%s\n' % url)
+                errfp.flush()
         browser.quit()
+
+        [ t.join() for t in threads ]
     else:
-        dlurl=get_dlurl(args['URL'],browser)
-        browser.quit()
-        download_file(dlurl,args['-o'],csize)
+        if args['--extract-dlurl']==True:
+            print(get_dlurl(args['URL'],browser))
+            browser.quit()
+        else:
+            dlurl=get_dlurl(args['URL'],browser)
+            browser.quit()
+            download_file(dlurl,args['-o'],csize)
     if os.path.exists('geckodriver.log'):
         os.remove('geckodriver.log')
     if os.path.exists('chromedriver.log'):
