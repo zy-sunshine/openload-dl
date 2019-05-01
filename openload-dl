@@ -98,7 +98,6 @@ if __name__=="__main__":
     if args['--filelist']:
         filelist = args['--filelist']
         filelistlog = '%s.err' % filelist
-        errfp = open(filelistlog, 'wt')
         ourls = []
         threads = []
         with open(filelist, 'rt') as fp:
@@ -117,11 +116,12 @@ if __name__=="__main__":
                 t = Thread(target=download_file, args=(dlurl, None, csize))
                 threads.append(t)
                 t.start()
-            except:
+            except Exception:
                 print('failed to get durl by url %s' % url)
                 traceback.print_exc()
-                errfp.write('%s\n' % url)
-                errfp.flush()
+                with open(filelistlog, 'at') as errfp:
+                    errfp.write('%s\n' % url)
+                    errfp.flush()
         browser.quit()
 
         [ t.join() for t in threads ]
